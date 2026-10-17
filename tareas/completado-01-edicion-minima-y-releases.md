@@ -1,5 +1,5 @@
 # Edición mínima y Releases
-Estado: implementado; la verificación del workflow remoto se realiza después del push.
+Estado: implementación completada; build Windows/Linux y publicación verificados en GitHub Actions al finalizar la ejecución.
 
 - Publicar solo oneo-compiler y open-neo-lite.
 - Conservar ONNX y ONEO v1, agregar ONEO v2 con metadatos.

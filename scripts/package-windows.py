@@ -7,6 +7,9 @@ import shutil
 import subprocess
 import zipfile
 
+ucrt_prefix = Path(subprocess.check_output(
+    ["cygpath", "-w", "/ucrt64"], text=True).strip())
+ucrt_bin = ucrt_prefix / "bin"
 version = os.environ["VERSION"]
 archive_path = Path("dist") / ("open-neo-tts-windows-x64-v" + version + ".zip")
 staging = Path("dist") / "windows-content"
@@ -14,33 +17,35 @@ staging.mkdir(parents=True, exist_ok=True)
 for exe in ("oneo-compiler.exe", "open-neo-lite.exe"):
     shutil.copy2(Path("build") / exe, staging / exe)
 
-# Inspect both programs and newly copied libraries until all UCRT dependencies
-# are present. Never ship DLLs from Windows system folders.
 pending = list(staging.glob("*.exe"))
+# ONNX Runtime also loads providers dynamically.
+for name in ("onnxruntime.dll", "onnxruntime_providers_shared.dll"):
+    source = ucrt_bin / name
+    if source.is_file() and not (staging / name).exists():
+        shutil.copy2(source, staging / name)
+        pending.append(staging / name)
+
+# Resolve all UCRT64 runtime imports recursively. objdump's output is
+# independent of whether the invoking Python came from MSYS2 or Windows.
 seen = set()
 while pending:
     binary = pending.pop()
     if binary.name.lower() in seen:
         continue
     seen.add(binary.name.lower())
-    result = subprocess.run(["ldd", str(binary)], capture_output=True, text=True)
+    result = subprocess.run(["objdump", "-p", str(binary)],
+                            capture_output=True, text=True)
     if result.returncode != 0:
-        raise RuntimeError("Cannot inspect runtime dependencies: " + str(binary) + result.stderr)
-    for line in result.stdout.splitlines():
-        for dll in re.findall(r"/ucrt64/bin/[^\s()]+\.dll", line, re.IGNORECASE):
-            source = Path(dll)
-            destination = staging / source.name
-            if not destination.exists():
-                shutil.copy2(source, destination)
-                pending.append(destination)
+        raise RuntimeError("Cannot inspect DLL imports for: " + str(binary))
+    for name in re.findall(r"DLL Name:\s*([^\s]+\.dll)",
+                           result.stdout, re.IGNORECASE):
+        source = ucrt_bin / name
+        target = staging / name
+        if source.is_file() and not target.exists():
+            shutil.copy2(source, target)
+            pending.append(target)
 
-for library in ("onnxruntime.dll", "onnxruntime_providers_shared.dll"):
-    src = Path("/ucrt64/bin") / library
-    if src.exists() and not (staging / library).exists():
-        shutil.copy2(src, staging / library)
-        pending.append(staging / library)
-
-data = Path("/ucrt64/share/espeak-ng-data")
+data = ucrt_prefix / "share" / "espeak-ng-data"
 if not data.is_dir():
     raise RuntimeError("eSpeak-NG language data is missing")
 shutil.copytree(data, staging / "espeak-ng-data", dirs_exist_ok=True)
@@ -49,7 +54,7 @@ for name in ("README.md", "LICENSE"):
 notices = staging / "THIRD_PARTY"
 notices.mkdir(exist_ok=True)
 for name in ("onnxruntime", "espeak-ng", "json-c", "openssl"):
-    source = Path("/ucrt64/share/licenses") / name
+    source = ucrt_prefix / "share" / "licenses" / name
     if source.is_dir():
         shutil.copytree(source, notices / name, dirs_exist_ok=True)
 (staging / "USAGE.txt").write_text(

@@ -259,7 +259,7 @@ int neo_lite_cli_impl(const std::vector<std::string>& argv){
   }else if(model.extension()==".onnx"){
     voice_json=read_file(args.count("--config")?fs::path(args.at("--config")):fs::path(model.string()+".json"),1024*1024);
     session=std::make_unique<Ort::Session>(env,model.c_str(),options);
-  }else throw std::invalid_argument("Open Open Neo Lite supports .onnx or .oneo");
+  }else throw std::invalid_argument("Open Neo Lite supports .onnx or .oneo");
   const auto config=audio_config(voice_json);
   const auto voice=neo::phonemes::read_voice_config_json(voice_json);
   if(session->GetInputCount()!=3||session->GetOutputCount()!=1)
