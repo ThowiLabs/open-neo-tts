@@ -1,0 +1,4 @@
+
+# Native graph template/checksum must remain byte-identical on Windows.
+assets/piper-medium.graph.pb.gz -text
+assets/piper-medium.weights.tsv -text

@@ -1,0 +1,2 @@
+# Only the synthetic 178-byte ONNX fixture is distributable with tests.
+!tiny-voice.onnx
