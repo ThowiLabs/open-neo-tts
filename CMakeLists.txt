@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.18)
 if(NOT DEFINED OPEN_NEO_VERSION)
-  set(OPEN_NEO_VERSION 0.1.0)
+  set(OPEN_NEO_VERSION 1.0)
 endif()
 project(open_neo_tts VERSION ${OPEN_NEO_VERSION} LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)

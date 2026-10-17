@@ -11,7 +11,7 @@ ucrt_prefix = Path(subprocess.check_output(
     ["cygpath", "-w", "/ucrt64"], text=True).strip())
 ucrt_bin = ucrt_prefix / "bin"
 version = os.environ["VERSION"]
-archive_path = Path("dist") / ("open-neo-tts-windows-x64-v" + version + ".zip")
+archive_path = Path("dist") / ("open-neo-tts-windows-x64-" + version + ".zip")
 staging = Path("dist") / "windows-content"
 staging.mkdir(parents=True, exist_ok=True)
 for exe in ("oneo-compiler.exe", "open-neo-lite.exe"):

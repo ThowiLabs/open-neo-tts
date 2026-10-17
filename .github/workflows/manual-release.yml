@@ -1,0 +1,192 @@
+name: Publicar Open Neo TTS
+
+# Las versiones solo se publican al ejecutar manualmente este workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      desde_version:
+        description: 'Versión exacta (ej. 3.0). Vacío: incrementar la última.'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publicacion-open-neo-tts
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Elegir versión
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    outputs:
+      numero: ${{ steps.calcular.outputs.numero }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Obtener Releases y tags
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate \
+            --jq '.[].tag_name' > /tmp/tags-publicados.txt
+          gh api "repos/$GITHUB_REPOSITORY/tags?per_page=100" --paginate \
+            --jq '.[].name' >> /tmp/tags-publicados.txt
+      - name: Calcular versión
+        id: calcular
+        env:
+          DESDE_VERSION: ${{ inputs.desde_version }}
+        run: |
+          set -euo pipefail
+          python3 scripts/test-release-version.py
+          numero="$(python3 scripts/next-release-version.py \
+            --tags-file /tmp/tags-publicados.txt \
+            --desde-version "$DESDE_VERSION")"
+          echo "numero=$numero" >> "$GITHUB_OUTPUT"
+          echo "Versión seleccionada: $numero" >> "$GITHUB_STEP_SUMMARY"
+
+  linux:
+    name: Linux ${{ matrix.arch }}
+    needs: version
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+            ort: x64
+            machine: x86_64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            ort: aarch64
+            machine: aarch64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalar dependencias
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++ libssl-dev libjson-c-dev libespeak-ng-dev patchelf
+      - name: Descargar ONNX Runtime nativo
+        env:
+          ORT_ARCH: ${{ matrix.ort }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ort
+          curl -fLsS --retry 3 \
+            "https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-linux-$ORT_ARCH-1.22.0.tgz" \
+            -o /tmp/ort.tgz
+          tar -xzf /tmp/ort.tgz -C /tmp/ort
+          echo "ORT_ROOT=/tmp/ort/onnxruntime-linux-$ORT_ARCH-1.22.0" >> "$GITHUB_ENV"
+      - name: Compilar y ejecutar pruebas
+        env:
+          VERSION: ${{ needs.version.outputs.numero }}
+          MACHINE: ${{ matrix.machine }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "$MACHINE"
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DOPEN_NEO_VERSION="$VERSION" \
+            -DNEO_ORT_INCLUDE="$ORT_ROOT/include" \
+            -DNEO_ORT_LIBRARY="$ORT_ROOT/lib/libonnxruntime.so"
+          cmake --build build -j2
+          ctest --test-dir build --output-on-failure
+          test -x build/oneo-compiler
+          test -x build/open-neo-lite
+          test ! -d src/studio
+          build/open-neo-lite --check-espeak
+      - name: Empaquetar Linux
+        env:
+          VERSION: ${{ needs.version.outputs.numero }}
+          ARCH: ${{ matrix.arch }}
+        run: bash scripts/package-linux.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paquete-linux-${{ matrix.arch }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  windows:
+    name: Windows x64
+    needs: version
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-json-c
+            mingw-w64-ucrt-x86_64-espeak-ng
+            mingw-w64-ucrt-x86_64-onnxruntime
+            mingw-w64-ucrt-x86_64-python
+            zip
+      - name: Compilar y probar
+        shell: msys2 {0}
+        env:
+          VERSION: ${{ needs.version.outputs.numero }}
+        run: |
+          set -euo pipefail
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DOPEN_NEO_VERSION="$VERSION" \
+            -DNEO_ORT_INCLUDE=/ucrt64/include/onnxruntime \
+            -DNEO_ORT_LIBRARY=/ucrt64/lib/libonnxruntime.dll.a
+          cmake --build build -j2
+          ctest --test-dir build --output-on-failure
+          test -f build/oneo-compiler.exe
+          test -f build/open-neo-lite.exe
+      - name: Empaquetar Windows
+        shell: msys2 {0}
+        env:
+          VERSION: ${{ needs.version.outputs.numero }}
+        run: python scripts/package-windows.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paquete-windows-x64
+          path: dist/*.zip
+          if-no-files-found: error
+
+  release:
+    name: Crear tag y Release
+    needs: [version, linux, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: paquete-*
+          path: dist
+          merge-multiple: true
+      - name: Publicar archivos, versión y comprobaciones
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          NUMERO: ${{ needs.version.outputs.numero }}
+          TARGET: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          cd dist
+          test "$(find . -maxdepth 1 -name '*.tar.gz' | wc -l)" -eq 2
+          test "$(find . -maxdepth 1 -name '*.zip' | wc -l)" -eq 1
+          if gh release view "$NUMERO" --repo "$GH_REPO" >/dev/null 2>&1; then
+            echo "La Release $NUMERO ya existe" >&2
+            exit 1
+          fi
+          if gh api "repos/$GH_REPO/git/ref/tags/$NUMERO" >/dev/null 2>&1; then
+            echo "El tag $NUMERO ya existe" >&2
+            exit 1
+          fi
+          sha256sum *.tar.gz *.zip > SHA256SUMS.txt
+          gh release create "$NUMERO" *.tar.gz *.zip SHA256SUMS.txt \
+            --repo "$GH_REPO" --target "$TARGET" \
+            --title "Open Neo TTS $NUMERO" --generate-notes
+          echo "Publicada la Release $NUMERO" >> "$GITHUB_STEP_SUMMARY"

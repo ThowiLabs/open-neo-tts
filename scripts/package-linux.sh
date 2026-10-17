@@ -1,22 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
-version="$VERSION"
-test -n "$version"
+version="${VERSION:?Falta VERSION}"
+arch="${ARCH:?Falta ARCH}"
+ort_root="${ORT_ROOT:?Falta ORT_ROOT}"
+case "$arch" in
+  x64|arm64) ;;
+  *) echo "Arquitectura no admitida: $arch" >&2; exit 1 ;;
+esac
 root="$(mktemp -d)"
 trap 'rm -rf "$root"' EXIT
-mkdir -p "$root/open-neo-tts/bin" "$root/open-neo-tts/lib" dist
-cp build/oneo-compiler build/open-neo-lite "$root/open-neo-tts/bin/"
-cp /tmp/ort/onnxruntime-linux-x64-1.22.0/lib/libonnxruntime.so* "$root/open-neo-tts/lib/"
-cp README.md LICENSE "$root/open-neo-tts/"
-cat > "$root/open-neo-tts/USAGE.txt" <<'TEXT'
-Open Neo TTS for Linux x64
-System packages needed: libespeak-ng1, espeak-ng-data, libjson-c5 and OpenSSL.
-ONNX Runtime is included with this bundle.
-
-Run from the extracted directory:
-  LD_LIBRARY_PATH="$PWD/lib" ./bin/open-neo-lite --help
+bundle="$root/open-neo-tts"
+mkdir -p "$bundle/bin" "$bundle/lib" dist
+cp build/oneo-compiler build/open-neo-lite "$bundle/bin/"
+cp -a "$ort_root"/lib/libonnxruntime.so* "$bundle/lib/"
+patchelf --set-rpath '$ORIGIN/../lib' "$bundle/bin/open-neo-lite"
+cp README.md LICENSE "$bundle/"
+cat > "$bundle/USAGE.txt" <<'TEXT'
+Open Neo TTS (Linux)
+Install espeak-ng, espeak-ng-data, JSON-C and OpenSSL runtime packages.
+ONNX Runtime is included in lib/.
+From the extracted directory:
   ./bin/oneo-compiler --help
-
-This package contains only the public ONEO compiler and Lite inference CLI.
+  ./bin/open-neo-lite --check-espeak
+  ./bin/open-neo-lite infer --model voice.oneo --text "Hello" --out voice.wav
+No trainer, Studio or proprietary .neo support is included.
 TEXT
-tar -C "$root" -czf "dist/open-neo-tts-linux-x64-v$version.tar.gz" open-neo-tts
+"$bundle/bin/oneo-compiler" --help >/dev/null
+"$bundle/bin/open-neo-lite" --check-espeak
+tar -C "$root" -czf "dist/open-neo-tts-linux-$arch-$version.tar.gz" open-neo-tts

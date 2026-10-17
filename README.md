@@ -11,7 +11,7 @@ Los modelos `.neo` y su compilador siguen siendo exclusivos del proyecto privado
 
 ## Descargas
 
-Los binarios para Linux x64 y Windows x64 se publican mediante GitHub Actions en [Releases](https://github.com/ThowiLabs/open-neo-tts/releases). Los paquetes contienen sus ejecutables, las bibliotecas indicadas y un archivo `SHA256SUMS.txt`.
+Los paquetes para **Windows x64, Linux x64 y Linux ARM64** se publican mediante GitHub Actions en [Releases](https://github.com/ThowiLabs/open-neo-tts/releases). Los paquetes contienen sus ejecutables, las bibliotecas indicadas y un archivo `SHA256SUMS.txt`.
 
 En Linux, instala eSpeak-NG, sus datos de idioma, JSON-C y OpenSSL; el paquete incluye ONNX Runtime. En Windows, conserva las DLL y `espeak-ng-data` junto a los ejecutables.
 
@@ -56,11 +56,17 @@ Todos los metadatos son opcionales. No hay editor de archivos ONEO. La portada a
 
 ONNX requiere el archivo JSON externo; ONEO incluye ambos.
 
-## Versiones
+## Publicar una versión
 
-El [workflow de publicación](.github/workflows/release.yml) compila Linux y Windows, pasa las pruebas y crea una Release cuando ambas plataformas finalizan correctamente. Comienza con `v0.1.0`; después incrementa automáticamente la versión *patch* (`v0.1.1`, `v0.1.2`, etc.). Desde **Run workflow** también permite elegir `minor` o `major`.
+El [workflow de Releases](.github/workflows/manual-release.yml) **solo puede ejecutarse manualmente** en GitHub: Actions → Publicar Open Neo TTS → Run workflow, con la rama `main` seleccionada.
 
-Los cambios en `main` activan la publicación y las pull requests solamente compilan y prueban. Si un build falla, no se crea Release.
+Si no existe ninguna Release, se crea el tag `1.0`. Cada ejecución posterior incrementa el segundo número, por ejemplo `1.1`, `1.2` y `1.3`, sin prefijo `v`.
+
+La entrada opcional `desde_version` permite fijar la próxima versión exacta, por ejemplo `3.0`. Tiene que superar el último tag numérico existente. Una ejecución posterior con el campo vacío avanzará a `3.1`.
+
+Se compilan `oneo-compiler` y `open-neo-lite` para Windows x64, Linux x64 y Linux ARM64, con pruebas para las tres plataformas. Cuando todas pasan, se crea la Release con los tres paquetes y `SHA256SUMS.txt`. Los commits y pull requests **no publican** versiones.
+
+Los nombres de los paquetes tienen el formato `open-neo-tts-linux-x64-1.0.tar.gz`, `open-neo-tts-linux-arm64-1.0.tar.gz` y `open-neo-tts-windows-x64-1.0.zip`.
 
 Consulta la [especificación ONEO](docs/ONEO_FORMAT.md) y la [división de ediciones](docs/EDICIONES.md).
 
